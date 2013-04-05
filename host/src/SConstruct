@@ -1,0 +1,39 @@
+env = Environment()
+core = Environment()
+
+inc = '../../include'
+env.Append(CPPPATH= [inc,'../../../../tools/host/armv7l/include'])
+
+core.Append(CPPPATH=['.',inc,'../../../../tools/e-gnu/epiphany-elf/sys-include'])
+
+
+
+#gcc = '/project/builds/rbnlinux/build_env/x86_64_devboard-3.0.0.10/export/sysroot/common_pc_64-glibc_std/x86-linux2/i586-wrs-linux-gnu-x86_64-glibc_std-gcc'
+#env.Replace(CC = gcc)
+
+cflags = '   \
+           -std=c99             \
+           -DPIC                                                   \
+'
+
+cflags = cflags.strip()
+env.Replace(CFLAGS = cflags)
+core.Replace(CFLAGS = cflags)
+env.Append(CFLAGS=' -D__HOST__ -DDEVICE_EMULATION')
+core.Append(CFLAGS=' -include ep_emulator.h')
+core.Append(CFLAGS=' -DDEVICE_EMULATION')
+
+
+libs = []
+for i in Split('dl m z pthread rt'): libs.append(i)
+
+objs = ['ep_emulator.c','ecore.o','ecore2.o']
+
+
+o1 = core.Object('ecore.o',"../../e_commonlib/src/matmul_unit.c")
+o2 = core.Object('ecore2.o',"../../e_commonlib/src/static_buffers.c")
+
+#core.Program()
+env.Program('emu', ['matmul_host.c']+objs, LIBS=libs,  LIBPATH='.')
+
+
