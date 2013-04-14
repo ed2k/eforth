@@ -33,7 +33,6 @@ typedef enum
 
 typedef unsigned int e_coreid_t;
 
-
 extern e_coreid_t e_get_coreid();
 
 extern e_coreid_t e_coreid_from_address(const void *ptr);

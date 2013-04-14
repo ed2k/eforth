@@ -1,7 +1,6 @@
 /*
 */
 
-//#include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stddef.h>
@@ -10,13 +9,15 @@
 #include <math.h>
 #include <arpa/inet.h>
 #include <string.h>
-#include "e-host.h"
-#include "e-loader.h"
+
+#include "e-hal.h"
 #include "matmul.h"
 #include "common_buffers.h"
-#include <pthread.h>
+#include "pthread.h"
 
+#ifdef DEVICE_EMULATION
 #include "ep_emulator.h"
+#endif
 
 #define __DO_STRASSEN__
 #define __WIPE_OUT_RESULT_MATRIX__
@@ -44,26 +45,86 @@ args_t ar = {TRUE, FALSE, TRUE, 0, ""};
 void get_args(int argc, char *argv[]);
 
 FILE *fo, *fi;
-//float Cref[_Smtx * _Smtx];
-//float Cdiff[_Smtx * _Smtx];
-//
-//typedef struct timeval timeval_t;
-//timeval_t timer[4];
+
+ssize_t e_mread_buf(e_mem_t *dram, const off_t from_addr, void *buf, size_t count) {
+	ssize_t s = e_read(dram, 0, 0, from_addr, buf, count);
+	if (s==E_ERR) {
+		printf("e read error");
+	}
+	return s;
+}
+ssize_t e_mwrite_buf(e_mem_t *dram, off_t to_addr, const void *buf, size_t count) {
+	ssize_t s = e_write(dram, 0, 0, to_addr, buf, count);
+	if (s==E_ERR) {
+		printf("e write error");
+	}
+	return s;
+}
+
+static 	pthread_t trace_reader_a ;
+void * trace_reader(void *parm)
+{
+	int addr =  offsetof(shared_buf_t, tp_buf);
+	uint32_t expect_seq = 1;
+	uint8_t buf[TP_BUF_SIZE];
+
+	while(1) {
+		int pos = 0;
+		e_mread_buf(parm, addr, buf, TP_BUF_SIZE);
+		for(int i=0;i<100;i++)printf("%x ", buf[i]);
+		printf("\n");
+		uint32_t seq = *(uint32_t*)(buf);
+		if (seq>expect_seq) {
+			// this is writer faster than reader
+			// todo consider display the wrapup case 789456
+			expect_seq = seq;
+		}
+
+		while ((pos+6) < (TP_BUF_SIZE) ) {
+			uint32_t seq = *(uint32_t*)(buf+pos);
+			if (0==seq)break;
+			uint8_t t = buf[pos+4];
+			if (0==t)break;
+			uint8_t len = buf[pos+5];
+			if(0==len)break;
+			// parse buffer
+			if (seq < expect_seq) {
+				// this is writer slower
+				pos += (6+len);
+				continue;
+			}
+			if (seq > expect_seq)break;
+			expect_seq = (seq+1);
+			if (pos+6+len>=(TP_BUF_SIZE)) break;
+			printf("seq %x pos %d cmd %c len %d \n", seq, pos, t,len);
+			if (t=='s')printf("%s\n",buf+pos+6);
+			else if(t=='D'||t=='R'||t=='1'||t=='2'||t=='o') {
+				printf("%x %x\n",*(uint32_t*)(buf+pos+6),*(uint32_t*)(buf+pos+10));
+			} else if (t=='c') printf("%x %c\n",*(uint32_t*)(buf+pos+6),*(uint8_t*)(buf+pos+6));
+			pos += (6+len);
+		}
+
+		sleep(3);
+	}
+	return NULL;
+}
+
+
 
 int main(int argc, char *argv[])
 {
-	Epiphany_t   Epiphany, *pEpiphany;
-	volatile DRAM_t       DRAM;
+	e_platform_t platform;
+	e_epiphany_t Epiphany, *pEpiphany;
+	e_mem_t      DRAM,     *pDRAM;
 	unsigned int msize;
 	float        seed;
 	unsigned int addr; //, clocks;
 	size_t       sz;
-	double       tdiff[2];
-	volatile int          result, rerval;
+	int    result, rerval;
 	
-	pEpiphany = &Epiphany;
-	volatile DRAM_t* pDRAM     = &DRAM;
-	msize     = 0x00400000;
+	pEpiphany 	= &Epiphany;
+	pDRAM  		= &DRAM;
+	msize     	= 0x00400000;
 
 	// load j1.bin into shared mem
 	uint8_t ROM[1<<16];
@@ -78,49 +139,53 @@ int main(int argc, char *argv[])
 	}
 	fclose(f);
 	printf ("read %d words\n",i);
-	for(int i=0;i<50;i++)printf("%x \n", (uint16_t)*(ROM+2*i));
+	for(int i=0;i<50;i++)printf("%x ", (uint16_t)*(ROM+2*i));
+	printf("\n");
 	get_args(argc, argv);
-
 
 	fo = stdout;
 	fi = stdin;
 
-
 	// Connect to device for communicating with the Epiphany system
 	// Prepare device
+	e_set_host_verbosity(H_D0);
+	e_init(NULL);
+	e_reset_system();
+	e_get_platform_info(&platform);
+
 	if (e_alloc(pDRAM, 0x00000000, msize))
 	{
 		fprintf(fo, "\nERROR: Can't allocate Epiphany DRAM!\n\n");
 		exit(1);
 	}
+	if (e_open(pEpiphany, 0, 0, 1, 1))
+	{
+		fprintf(fo, "\nERROR: Can't establish connection to Epiphany device!\n\n");
+		exit(1);
+	}
+	e_reset_core(pEpiphany, 0, 0);
+
 	//fprintf(fo, "host base %x \n", pDRAM->base); fflush(fo);
     // init all
-	// Initialize Epiphany "Ready" state
-	addr = offsetof(shared_buf_t, core.ready);
-	//Mailbox.core.ready = 0;
+
     for(int i=0;i<16;i++){
 		int n = 0;
 		addr = offsetof(shared_buf_t, core.seq);
         e_mwrite_buf(pDRAM, addr, &n, sizeof(int));
-               addr = offsetof(shared_buf_t, core.go_out);
+        addr = offsetof(shared_buf_t, core.go_out);
         e_mwrite_buf(pDRAM, addr, &n, sizeof(int));
 	} 
 	addr = offsetof(shared_buf_t, DRAM);
     e_mwrite_buf(pDRAM, addr, ROM, sizeof(ROM));
 
 	printf("Loading program on Epiphany chip...\n");
-	e_set_loader_verbosity(ar.verbose);
-	result = e_load(ar.srecFile, ar.reset_target, ar.broadcast, ar.run_target);
-	if (result == EPI_ERR) {
+	//e_set_loader_verbosity(ar.verbose);
+	//result = e_load_group(ar.srecFile, pEpiphany, 0, 0, pEpiphany->rows, pEpiphany->cols, ar.run_target);
+	result = e_load(ar.srecFile, pEpiphany, 0, 0, ar.run_target);
+	if (result == E_ERR) {
 		printf("Error loading Epiphany program.\n");
 		exit(1);
 	}
-	if (e_open(pEpiphany))
-	{
-		fprintf(fo, "\nERROR: Can't establish connection to Epiphany device!\n\n");
-		exit(1);
-	}
-
 
 	// Generate operand matrices based on a provided seed
 	matrix_init(seed);
@@ -159,6 +224,9 @@ int main(int argc, char *argv[])
         n = buf[0];
         printf("seq %d core %d cmd %c\n", ep_seq[n], n, buf[1]);
         if('s' == buf[1])printf("set debug mask %x \n",  buf[2]);
+        else if('L' == buf[1]) {
+            pthread_create(&trace_reader_a, NULL, trace_reader, pDRAM);
+        }
 
 		char string[256] = "aaa bbb ccc     ";
 		char s_out[256];
@@ -166,20 +234,18 @@ int main(int argc, char *argv[])
 		int addr_to = offsetof(shared_buf_t, core.go[n]);
 		int addr_out = offsetof(shared_buf_t, core.go_out[n]);
 		int addr_seq = offsetof(shared_buf_t, core.seq[n]);
-		int addr_count = offsetof(shared_buf_t, core.count[n]);
+		int addr_core_seq = offsetof(shared_buf_t, core.core_seq[n]);
 		// send command
 		memcpy(string,buf+1,10);
-		sz= e_mwrite_buf(pDRAM, addr_to, string, 256 );
-		sz= e_mwrite_word(pDRAM, addr_seq, ep_seq[n] );
+		sz= e_mwrite_buf(pDRAM, addr_to, string, 25 );
+		sz= e_mwrite_buf(pDRAM, addr_seq, &ep_seq[n], sizeof(uint32_t) );
 		ep_seq[n] ++;
-		// read back seq
-		//result = e_mread_word(pDRAM, addr_seq);
-//		do {
-//			result = e_mread_word(pDRAM, addr_count );
-//		} while (ep_seq==result);
-//		ep_seq = result;
-//		sz = e_mread_buf(pDRAM, addr_out, s_out, 256);
-//		fprintf(fo, "%d %s\n", ep_seq, s_out);
+		sleep(1);
+		// read from core
+		uint32_t core_out;
+		sz = e_mread_buf(pDRAM, addr_out, s_out, 25);
+		result = e_mread_buf(pDRAM, addr_core_seq, &core_out,sizeof(uint32_t));
+		printf("check seq %x and output %s\n", core_out, s_out);
 	}
 
 

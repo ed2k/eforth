@@ -37,25 +37,65 @@ typedef struct {
 
 typedef struct {
 	shared_msg_t    go_out[_Ncores];// core send buffer
+	uint8_t barrier1[1024];
 	shared_msg_t    go[_Ncores]; 	// host send buffer
-	int32_t      	ready;       	// Core is ready after reset
-	int32_t      	clocks;      	// Cycle count
-	int32_t 	 	count[_Ncores]; // core send count
-	int32_t 	 	seq[_Ncores]; 	// host send count
+	uint8_t barrier2[1024];
+	uint32_t 	 	core_seq[_Ncores]; // core send count
+	uint32_t 	 	seq[_Ncores]; 	// host send count
 } mbox_t;
 
+#define TP_BUF_SIZE (1<<10)
+
+
+typedef struct {
+	int tp_buf_size;
+	uint32_t tp_seq;
+	uint32_t tp_pos;
+	uint8_t tp_debug_mask;
+
+	void *pBase;       // ptr to base of shared buffers
+	mbox_t *pCore;       // ptr to cores mailbox
+	uint8_t* pDRAM;
+	uint32_t pTP_buf;
+} shared_buf_ptr_t;
 
 typedef struct {
 	mbox_t core;
-	uint16_t DRAM[1<<16];
+	shared_buf_ptr_t t;
+	uint8_t DRAM[1<<16];
+	uint8_t tp_buf[TP_BUF_SIZE];
 } shared_buf_t;
 
+typedef struct {
+	uint32_t seq;
+	uint8_t type;
+	uint8_t len;
+	uint8_t buf[0];
+} D_tp_record_t;
+
+
+#define D_sys 0
+#define D_str 's'
+#define D_arg1 '1'
+#define D_arg2 '2'
+#define D_dstack 'D'
+#define D_rstack 'R'
+#define D_op   'o'
+#define D_tn   't'
+#define D_r    'r'
+#define D_addr 'a'
+#define D_ser  'c'
 
 typedef struct {
-	void   *pBase;       // ptr to base of shared buffers
-	mbox_t *pCore;       // ptr to cores mailbox
-	uint8_t* pDRAM;
-} shared_buf_ptr_t;
+	uint32_t v1;
+	uint32_t v2;
+} D_u32_2_t;
 
+#define TP_u32_2(t,d,v) do { \
+	D_u32_2_t b; \
+	b.v1 = d; \
+	b.v2 = v; \
+	ringbuffer_write(t,8,&b); \
+} while (0)
 
 #endif // __MATMUL_H__

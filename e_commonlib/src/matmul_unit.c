@@ -4,8 +4,8 @@
 */
 
 #include <stddef.h>
+
 #include "matmul.h"
-//#include "matmul_edefs.h"
 
 #include "static_buffers.h"
 #include "common_buffers.h"
@@ -25,50 +25,70 @@
 
 #include "ivm.h"
 
+
 #ifdef DEVICE_EMULATION
-//# 0-15
-char ALU_OP_str[][16] = {"T", "N", "PLUS", "AND",
-"OR", "XOR", "NEG", "EQ",
-"LESS", "RSHIFT", "DEC", "R",
-"MEM", "LSHIFT", "DEPTH", "ULESS"};
 
 #define SER_TX(args...) printf(args)
-#define DBG(args...)              \
- if (debug_mask & 0x01) {         \
-    printf(args);                 \
- }
 
-#define INFO(args...)              \
+#define INFO(args...)    do{          \
  if (1) {         \
     printf(args);                 \
- }
-#else
-#define DBG(args...)
+ } } while (0)
+#else  // no DEVICE_EMULATION
+#define SER_TX(args...) ;
 
-#endif
+#define INFO(fmt, args...) ;
 
-//#define _gptr(coreID, ptr) ( (void *) ( (((unsigned) coreID) << 20) | ((unsigned) ((void *) ptr)) ) )
+#endif // no DEVICE_EMULATION
 
-#define _MAX_MEMBER_ 64
 
-#ifdef DEVICE_EMULATION
-//# 0-15
-#endif
+#define DBG_u32_2(t,arg, arg2)  do {            \
+ if (Mailbox.tp_debug_mask & 0x01) {         \
+	 TP_u32_2(t,arg, arg2);                 \
+ } } while (0)
 
-static uint8_t debug_mask = 0;
+
+//todo check volatile
+
+
+//shared_buf_t _SHARED_DRAM_ SECTION("shared_dram");
+
 void init();
 
-static int get_host_seq() {
-	int r = Mailbox.pCore->seq[me.corenum];
+static void ringbuffer_write(uint8_t type, uint8_t len, uint8_t* buf) {
+	if (0==len) return;
+	if (0==type)return;
+	int size = (4+2+len);
+//shared_buf_ptr_t *base = &((shared_buf_t*)Mailbox.pBase)->t;
+	D_tp_record_t d;
+	volatile int pos = Mailbox.tp_pos;
+
+	//printf("dbg seq %x pos %d \n",Mailbox.tp_seq, Mailbox.tp_pos);
+	if ((pos+size) >= TP_BUF_SIZE ) {
+		pos = 0;
+	}
+	d.seq =  Mailbox.tp_seq;
+	d.type = type;
+	d.len = len;
+	memcpy(Mailbox.pTP_buf+pos, &d, 6);
+	memcpy(Mailbox.pTP_buf+pos+6,buf,len);
+	Mailbox.tp_pos = (pos+size);
+	Mailbox.tp_seq++;
+	if(Mailbox.tp_seq == 0) Mailbox.tp_seq = 1;
+}
+
+static uint32_t get_host_seq() {
+	uint32_t r = Mailbox.pCore->seq[me.corenum];
 	return r;
 }
-static void set_own_seq(int seq) {
-	Mailbox.pCore->count[me.corenum] = seq; 
+static void set_own_seq(uint32_t seq) {
+	//Mailbox.pCore->count[me.corenum] = seq;
 }
 
 void ivm_mem_put(uint16_t addr, uint16_t value, ivm_t* ivm) {
 	if (RS232_TXD == addr) {
 		SER_TX("%c", (uint8_t)value);
+		DBG_u32_2( D_ser, value, 0);
 	} else { 
 		uint8_t u2 = value & 0xff;
 		uint8_t u1 = value >> 8;
@@ -104,17 +124,14 @@ static uint16_t rom_get(uint16_t pc, ivm_t* ivm) {
 }
 
 void dump_op(uint16_t op, ivm_t* ivm) {
-	DBG("D%02d:%04x ", ivm->dp,ivm->ds[ivm->dp]);
-	for(int i=0;i<ivm->rp;i++) {
-		DBG(" ");
-	}
-	DBG("R%02d:%04x ", ivm->rp,ivm->rs[ivm->rp]);
-	if(op & OP_LIT) DBG( "OP_LIT ds push 0x%x ",(op&0x7fff));
+	DBG_u32_2(D_dstack,ivm->dp,ivm->ds[ivm->dp]);
+	DBG_u32_2(D_rstack, ivm->rp,ivm->rs[ivm->rp]);
+	if(op & OP_LIT) DBG_u32_2( D_op, op, 0);
 	uint16_t word = OP(op);
 	uint16_t hex_arg_str = (ARG(op));
-	if(OP_JZ == word)  { DBG( "OP_JZ %x ", ARG(op)); }
-	else if( OP_JMP == word) { DBG( "OP_JMP %x ", hex_arg_str); }
-	else if( OP_CALL== word) { DBG( "OP_CALL %x ", hex_arg_str); }
+	if(OP_JZ == word)  {  }
+	else if( OP_JMP == word) {  }
+	else if( OP_CALL== word) {  }
 	else if( OP_ALU == word) {
 		uint16_t t, n, r, res;
 		t = ivm->ds[ivm->dp];
@@ -122,84 +139,30 @@ void dump_op(uint16_t op, ivm_t* ivm) {
 			n = ivm->ds[ivm->dp-1];
 		}
 		r = ivm->rs[ivm->rp];
-		DBG( "ALU ");
 		uint8_t alu_op = ALU_OP(op) >> 8;
-		DBG( "%s ", ALU_OP_str[alu_op] );
+		DBG_u32_2( D_op, op, 0 );
+		DBG_u32_2( D_tn, t, n );
+
 		switch (alu_op) {
-			case ALU_OP_T: DBG( "%d ", (int16_t)t); break;
-			case ALU_OP_N: {
-				DBG( "%d ", (int16_t)n);
-				break;
-			}
-			case ALU_OP_PLUS: {
-				DBG( "%d ", (int16_t)t+n);
-				break;
-			}
-			case ALU_OP_AND: {
-				DBG( "%d ", (int16_t)t&n);
-				break;
-			}
-			case ALU_OP_OR: {
-				DBG( "%d ", (int16_t)t|n);
-				break;
-			}
-			case ALU_OP_XOR: {
-				DBG( "%d ", (int16_t)t ^ n);
-				break;
-			}
-			case ALU_OP_NEG: DBG( "%x ", ~t); break; // -1, 0
-			case ALU_OP_EQ: {
-				DBG( "%d ", (int16_t)(t == n));
-				break; // -1, 0
-			}
-			case ALU_OP_LESS: {
-				DBG( "%d ", (int16_t)n<t);
-				break; // -1, 0
-			}
-			case ALU_OP_RSHIFT: {
-				DBG( "%d ", (int16_t)n>>t);
-				break;
-			}
-			case ALU_OP_DEC: DBG( "%d ", (int16_t)t-1); break;
-			case ALU_OP_R: DBG( "%d ", (int16_t)r); break;
-			case ALU_OP_MEM: break;
-			case ALU_OP_LSHIFT: {
-				DBG( "%d ", (int16_t)n<<t);
-				break;
-			}
-			case ALU_OP_DEPTH:  break;
-			case ALU_OP_ULESS: {
-				DBG( "%d ", (int16_t)n<t);
-				break; // -1, 0
-			}
-			default: break;
+			case ALU_OP_R: DBG_u32_2( D_r, (int16_t)r, 0); break;
 		}
-
 		if (ALU_OP_MEM == alu_op)
-			DBG("get *0x%x=%x ",t, *(uint16_t*)(ivm->DRAM+t));
-		if (ALU_DS(op) == ALU_DS_PUSH) DBG( "d+ ");
-		if (ALU_DS(op) == ALU_DS_POP) DBG( "d- ");
-		if (ALU_RS(op) == ALU_RS_PUSH) DBG( "r+ ");
-		if (ALU_RS(op) == ALU_RS_POP) DBG( "r- ");
-		if (ALU_RS(op) == ALU_RS_PP) DBG( "r-2 ");
+			DBG_u32_2(D_addr, *(uint16_t*)(ivm->DRAM+t),0);
 
-		if (op & (ALU_F_N_aT)) DBG( "mem_put *0x%x=0x%x ",t,n);
-		if (op & (ALU_F_T_R))  DBG( "r=0x%x ",t);
-		if (op & (ALU_F_T_N))  DBG( "dN=0x%x ",t);
-		if (op & (ALU_F_R_PC)) DBG( "pc=0x%x ", r);
+		if (op & (ALU_F_R_PC)) DBG_u32_2( D_r, r, 0);
 	}
-	DBG("\n");
 }
 static uint8_t do_something(char* input, ivm_t* ivm) {
 	uint16_t op = rom_get(ivm->pc, ivm);
     uint16_t *p = (uint16_t*)(ivm->DRAM + ALARM);
     uint16_t t = *p;
     *p = t+1;
-	DBG("pc %04x: %04x ",ivm->pc, op);
-    dump_op(op, ivm);
+    //DBG_u32_2(D_op,op, ivm->pc);
+    //dump_op(op, ivm);
 	if (ivm_step(op, ivm)) {
 	    //DBG("--- ABORT ---------------");
 	    //dump_stack(ivm);
+		dump_op(op,ivm);
 	    // raise vm error
 	    return 'E';
 	}
@@ -209,33 +172,29 @@ static uint8_t do_something(char* input, ivm_t* ivm) {
 
 int matmul_unit()
 {
-	unsigned time_s, time_e;
-	int n = 0;
-	volatile int32_t* readp;
+	volatile uint32_t nnnn = 1;
+//	volatile int32_t* readp;
 	volatile int host_seq = 0;
-	char* op;
-	int own_seq = 1;
-	char os_state = 0;
+	volatile int own_seq = 1;
+	volatile char os_state = 0;
 	// Initialize data structures - mainly target pointers
 	init();
-	readp = &Mailbox.pCore->seq[me.corenum];
+
+//	readp = &Mailbox.pCore->seq[me.corenum];
 	ivm_t vcpu;
 
-#ifdef DEVICE_EMULATION
-	DBG ("core %d %x\n", me.corenum, readp);
-#endif
+	//INFO ("core %d %x\n", me.corenum, readp);
 	do {
 #ifdef DEVICE_EMULATION
 		  pthread_yield();
 #endif			
 	} while ( get_host_seq() == 0);
-#ifdef DEVICE_EMULATION
-	DBG ("core %d step 0 %x\n", me.corenum, readp);
-#endif
+	//INFO ("core %d step 0 %x\n", me.corenum, readp);
 
 	while (1)
 	{
 		if (host_seq == get_host_seq()) {
+			//DBG_u32_2(D_arg1,own_seq,0);
 			if (os_state != 'g') continue;
 			// no new instruction, carry on
 			// do something
@@ -243,31 +202,33 @@ int matmul_unit()
 			char tmps[sizeof(shared_msg_t)] = " : auto_run";
 		    if (result) tmps[0] = result;
 		    else tmps[0]='g';
-			memcpy(Mailbox.pCore->go_out[me.corenum].msg, tmps, sizeof(shared_msg_t));
-			set_own_seq(own_seq);
-			own_seq++;
+			//memcpy(Mailbox.pCore->go_out[me.corenum].msg, tmps, 25);
+			//set_own_seq(own_seq);
+			//own_seq++;
 		} else {
 			host_seq = get_host_seq();
 			char *op = Mailbox.pCore->go[me.corenum].msg;
 			INFO("core %d cmd %s os_state %c\n", me.corenum, op, os_state);
+			DBG_u32_2(D_arg2, op, os_state);
 			if (*op == 'L' && os_state == 'r') {
 				// loading the vm
 				ivm_reset(&vcpu);
 				vcpu.DRAM = Mailbox.pDRAM;
-				for (int i=0;i<50;i++)DBG("%x \n",(uint16_t)*(vcpu.DRAM+2*i));
+				for (int i=0;i<50;i++)INFO("%x \n",(uint16_t)*(vcpu.DRAM+2*i));
 				os_state = 'g';
 			} else if (*op == 'R') {
 				os_state = 'r';
 			} else if (*op == 's') {
-				debug_mask = *(op+1);
+				Mailbox.tp_debug_mask = *(op+1);
 			}
 
-		    *op='g';
-			memcpy(Mailbox.pCore->go_out[me.corenum].msg, op, sizeof(shared_msg_t));
-			set_own_seq(own_seq);
-			own_seq++;
+			memcpy(Mailbox.pCore->go_out[me.corenum].msg, op, 25);
+			set_own_seq(nnnn);
+			//own_seq++;
 		}
-		n++;
+		nnnn++;
+		//memcpy(&Mailbox.pCore->core_seq[me.corenum], &nnnn, 4);
+		//set_own_seq(n);
 #ifdef DEVICE_EMULATION
 		  pthread_yield();
 #endif
@@ -279,40 +240,30 @@ int matmul_unit()
 
 void init()
 {
-        // Init core enumerations
-        int coreID  = e_get_coreid();
-        int row, col;
-        e_coords_from_coreid(coreID, &row, &col);
-        row     = row - E_FIRST_CORE_ROW;
-        col     = col - E_FIRST_CORE_COL;
-        me.corenum = row * E_COLS_IN_CHIP + col;
+	// Init core enumerations
+	int coreID  = e_get_coreid();
+	unsigned int row, col;
+	e_coords_from_coreid(coreID, &row, &col);
+	row     = row - E_FIRST_CORE_ROW;
+	col     = col - E_FIRST_CORE_COL;
+	me.corenum = row * E_COLS_IN_CHIP + col;
 
 	// Initialize the mailbox shared buffer pointers
 	Mailbox.pBase = (void *) SHARED_DRAM;
+	//Mailbox.pBase = (void *) 0x8e000000;
 	Mailbox.pCore = Mailbox.pBase + offsetof(shared_buf_t, core);
 	Mailbox.pDRAM = Mailbox.pBase + offsetof(shared_buf_t, DRAM);
 
-#ifdef DEVICE_EMULATION
-	//DBG ("core %d pbase %x\n", me.corenum, Mailbox.pBase);
-	// Initialize per-core parameters - core data structure
-#endif	
-	// Initialize pointers to the operand matrices ping-pong arrays
+	Mailbox.tp_buf_size = TP_BUF_SIZE;
+	Mailbox.pTP_buf = (uint32_t)Mailbox.pBase + offsetof(shared_buf_t, tp_buf);
+	Mailbox.tp_seq = 1;
+	Mailbox.tp_pos = 0;
+	Mailbox.tp_debug_mask = 0xff;
 
 
-	// Initialize the pointer addresses of the arrays in the horizontal and vertical target
-	// cores, where the submatrices data will be swapped, and the inter-core sync signals.
-
-
-	// Clear the inter-core sync signals
-
-	// Init the host-accelerator sync signals
-	//Mailbox.pCore->go[me.corenum] = 0;
-#ifdef DEVICE_EMULATION
-	//DBG ("core %d\n", me.corenum);
-#endif
-	if (me.corenum == 0)
-		Mailbox.pCore->ready = 1;
-	
+	if (me.corenum == 0) {
+		bzero(Mailbox.pTP_buf, TP_BUF_SIZE);
+	}
 	me.count = 0;
 
 	return;

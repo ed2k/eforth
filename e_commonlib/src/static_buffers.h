@@ -26,9 +26,9 @@
 #include "matmul.h"
 #include "ep_defs.h"
 
-extern volatile float  AA[2][_Score][_Score]; // local A submatrix
-extern volatile float  BB[2][_Score][_Score]; // local B submatrix
-extern volatile float  CC   [_Score][_Score]; // local C submatrix
+//extern volatile float  AA[2][_Score][_Score]; // local A submatrix
+//extern volatile float  BB[2][_Score][_Score]; // local B submatrix
+//extern volatile float  CC   [_Score][_Score]; // local C submatrix
 //extern volatile e_tcb_t _tcb;                 // TCB structure for DMA
 #ifdef DEVICE_EMULATION
 extern __thread core_t me;

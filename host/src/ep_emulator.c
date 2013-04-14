@@ -10,7 +10,7 @@
 #include "string.h"
 #include "stdlib.h"
 
-#include "e-host.h"
+#include "e-hal.h"
 #include "ep_emulator.h"
 #include "pthread.h"
 
@@ -18,6 +18,7 @@
 void * get_SHARED_DRAM() {
   return (void*)_SHARED_DRAM_;
 }
+
 
 __thread unsigned int emu_coreid;
 
@@ -117,20 +118,20 @@ void *theThread(void *parm)
    return NULL;
 }
 
-static 	pthread_t             thread[NUMTHREADS];
-int     e_open(Epiphany_t *dev) {
+static 	pthread_t             thread[NUMTHREADS+1];
+
+int     e_open(e_epiphany_t *dev, unsigned row, unsigned col, unsigned rows, unsigned cols) {
   printf("TODO implement %s\n", __func__);
   return 0;
 }
 
-int     e_close(Epiphany_t *dev) {
+int     e_close(e_epiphany_t *dev) {
   printf("TODO implement %s\n", __func__);
   return 0;
 }
 
 
 int e0_close() {
-
 	printf("Wait for the threads to complete, and release their resources\n");
 	for (int i=0; i < NUMTHREADS; i++) {
 		int rc = pthread_join(thread[i], NULL);
@@ -141,73 +142,53 @@ int e0_close() {
     return 0;
 }
 
-ssize_t e_read(Epiphany_t *dev, int corenum, const off_t from_addr, void *buf, size_t count) {
-  printf("TODO implement %s\n", __func__);
-  return 0;
+ssize_t e_read(void *dev, unsigned row, unsigned col, off_t from_addr, void *buf, size_t count) {
+	e_mem_t *dram = (e_mem_t*)dev;
+	char* from = (char*)(dram->base) + from_addr;
+	  memcpy(buf, (void*)from, count);
+	  return count;
 }
-ssize_t e_write(Epiphany_t *dev, int corenum, off_t to_addr, const void *buf, size_t count) {
-  printf("TODO implement %s\n", __func__);
-  return 0;
-}
-
-
-ssize_t e_mread(DRAM_t *dram, const off_t from_addr, void *buf, size_t count) {
-  char* from = (char*)(dram->base) + from_addr;
-  memcpy(buf, (void*)from, count);
-  return count;
-}
-ssize_t e_mwrite(DRAM_t *dram, off_t to_addr, const void *buf, size_t count) {
-  char* to = (char*)(dram->base) + to_addr;
-  memcpy((void*)to, buf, count);
-  return count;
-}
-int     e_mread_word(DRAM_t *dram, const off_t from_addr) {
-  int p;
-  e_mread(dram, from_addr, &p, sizeof(int));
-  return (p);
+ssize_t e_write(void *dev, unsigned row, unsigned col, off_t to_addr, const void *buf, size_t count) {
+	e_mem_t *dram = (e_mem_t*)dev;
+	char* to = (char*)(dram->base) + to_addr;
+	  memcpy((void*)to, buf, count);
+	  return count;
 }
 
-ssize_t e_mwrite_word(DRAM_t *dram, off_t to_addr, int data) {
-  int p = (data); 
-  e_mwrite(dram, to_addr, &p, sizeof(int));
-  return sizeof(int);
-}
-ssize_t e_mread_buf(DRAM_t *dram, const off_t from_addr, void *buf, size_t count) {
-  return e_mread(dram, from_addr, buf, count);
-}
-ssize_t e_mwrite_buf(DRAM_t *dram, off_t to_addr, const void *buf, size_t count) {
-  return e_mwrite(dram, to_addr, buf, count);
-}
+
 
 
 // eDRAM access
-int     e_alloc(DRAM_t *dram, off_t mbase, size_t msize){
+int     e_alloc(e_mem_t *dram, off_t mbase, size_t msize){
   dram->base = malloc(msize);
   dram->map_size = msize;
   dram->phy_base = mbase;
   _SHARED_DRAM_ = ( void *)dram->base;
   return 0;
 }
-int     e_free(DRAM_t *dram){
+int     e_free(e_mem_t *dram){
   free(dram->base);
   return 0;
 }
 
+int     e_init(char *hdf) {}
+int     e_reset_system(){}
+
 /////////////////////////
 // Core control functions
-int e_send_core_reset(Epiphany_t *pEpiphany, unsigned int coreid){
+int e_send_core_reset(e_epiphany_t *pEpiphany, unsigned int coreid){
   printf("TODO implement %s\n", __func__);
   return 0;  
 }
-int e_send_core_reset_ID(Epiphany_t *pEpiphany, unsigned int coreid){
+int e_send_core_reset_ID(e_epiphany_t *pEpiphany, unsigned int coreid){
   printf("TODO implement %s\n", __func__);
   return 0;  
 }
-int e_send_reset(Epiphany_t *pEpiphany, e_resetid_t resetid){
-  printf("TODO implement %s\n", __func__);
-  return 0;  
-}
-int e_send_ILAT(Epiphany_t *pEpiphany, unsigned int coreid){
+//int e_send_reset(e_epiphany_t *pEpiphany, e_resetid_t resetid){
+//  printf("TODO implement %s\n", __func__);
+//  return 0;
+//}
+int e_send_ILAT(e_epiphany_t *pEpiphany, unsigned int coreid){
   printf("TODO implement %s\n", __func__);
   return 0;  
 }
@@ -219,7 +200,8 @@ int e_send_ILAT(Epiphany_t *pEpiphany, unsigned int coreid){
 unsigned int e_get_coreid() {
     return emu_coreid;
 }
-unsigned int e_get_num_from_coords(int row, int col){
+
+unsigned e_get_num_from_coords(e_epiphany_t *dev, unsigned row, unsigned col){
   printf("TODO implement %s\n", __func__);
   return 0;  
 }
@@ -227,6 +209,7 @@ unsigned int e_get_num_from_id(unsigned int coreid){
   printf("TODO implement %s\n", __func__);
   return 0;  
 }
+
 unsigned int e_get_id_from_coords(int row, int col){
   printf("TODO implement %s\n", __func__);
   return 0;  
@@ -239,7 +222,8 @@ void  e_get_coords_from_id(unsigned int coreid, int *row, int *col){
   *row = coreid/4;
   *col = coreid % 4;
 }
-void  e_get_coords_from_num(int corenum, int *row, int *col){
+
+void     e_get_coords_from_num(e_epiphany_t *dev, unsigned corenum, unsigned *row, unsigned *col){
   *row = corenum/4;
   *col = corenum % 4;  
 }
@@ -260,12 +244,19 @@ int e_neighbor_id(e_coreid_t *coreid, e_coreid_wrap_t dir, e_coreid_wrap_t wrap)
   return 0;
 }
 
-void e_set_host_verbosity(int verbose){}
+void     e_set_host_verbosity(e_hal_diag_t verbose){}
 
 
 
 // loader
-int e_load(char *srecFile, bool reset_target, bool broadcast, bool run_target) {
+int e_load(char *executable, e_epiphany_t *dev, unsigned row, unsigned col, e_bool_t start) {
+	  printf("TODO implement %s\n", __func__);
+	  return 0;
+}
+
+int e_load_group(char *executable, e_epiphany_t *dev,
+		unsigned row, unsigned col, unsigned rows, unsigned cols,
+		e_bool_t start) {
   int                   i;
   static threadparm_t          gData[NUMTHREADS];
     e_mutex_t *const m_ptr = get_global_mutex_pointer();
@@ -283,12 +274,15 @@ int e_load(char *srecFile, bool reset_target, bool broadcast, bool run_target) {
     return 0;
 }
 
-int parseAndSendSrecFile(char *srecFile, Epiphany_t *p, bool broadcast, int verbose){
+/*
+int parseAndSendSrecFile(char *srecFile, e_epiphany_t *p, bool broadcast, int verbose){
   printf("TODO implement %s\n", __func__);
   return 0;
 }
+*/
 
-void e_set_loader_verbosity(int verbose){
+void e_set_loader_verbosity(e_loader_diag_t verbose){
   printf("TODO implement %s\n", __func__);
 }
+
 

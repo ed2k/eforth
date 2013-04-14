@@ -5,7 +5,7 @@
 
 typedef unsigned int e_coreid_t;
 
-#include <e-host.h>
+#include <e-hal.h>
 #include "matmul.h"
 
 //#define _HI(x) ((unsigned int) (x >> 32))
@@ -183,17 +183,17 @@ core_regs_t SREGS[eEOF] = {
 };
 
 
-
+extern e_platform_t e_platform;
 int main(int argc, char *argv[])
 {
-	Epiphany_t   Epiphany, *pEpiphany;
-	DRAM_t       DRAM,     *pDRAM;
+	e_epiphany_t   Epiphany, *pEpiphany;
+	e_mem_t       DRAM,     *pDRAM;
 	unsigned int msize;
 
 	off_t mbox_addr;
 	size_t sz;
 	FILE *fo;
-	unsigned coreid, corenum;
+	unsigned coreid, corenum, row, col;
 	core_str_t *rec;
 	int i, j, k, datum, value;
 	char fmt[255];
@@ -222,7 +222,10 @@ int main(int argc, char *argv[])
 		corenum = atoi(argv[1]);
 	}
 
-	if (e_open(pEpiphany))
+	e_set_host_verbosity(H_D0);
+	e_init(NULL);
+
+	if (e_open(pEpiphany, 0, 0, e_platform.chip[0].rows, e_platform.chip[0].cols))
 	{
 		fprintf(fo, "\nERROR: Can't establish connection to Epiphany device!\n\n");
 		exit(1);
@@ -234,37 +237,37 @@ int main(int argc, char *argv[])
 	}
 
 
+
 	// Read data from device
 	// =====================
-
-	coreid  = e_read_reg(pEpiphany, corenum, sregsaddr + SREGS[eCOREID].a);
+	e_get_coords_from_num(pEpiphany, corenum, &row, &col);
+	e_read(pEpiphany, row, col, sregsaddr + SREGS[eCOREID].a, &coreid, sizeof(coreid)); // 0xfff; //
 
 	fprintf(fo, "Probing Core ID 0x%03x\n", coreid);
 
-	fprintf(fo, "Reading core 0x%03x GP registers from address %08x...\n", coreid, dregsaddr);
-	for (i=0; i<nDREGS; i++)
-	{
-		fprintf(fo, "Reading register R[%2d]\n", i);
-		DREGS[i] = e_read_reg(pEpiphany, corenum, dregsaddr + i * sizeof(DREGS[0]));
-	}
+//	fprintf(fo, "Reading core 0x%03x GP registers from address %08x...\n", coreid, dregsaddr);
+//	for (i=0; i<nDREGS; i++)
+//	{
+//		fprintf(fo, "Reading register R[%2d]\n", i);
+//		DREGS[i] = e_read_reg(pEpiphany, corenum, dregsaddr + i * sizeof(DREGS[0]));
+//	}
 
 	fprintf(fo, "Reading core 0x%03x system registers from address %08x...\n", coreid, sregsaddr);
 	for (i=0; i<eEOF; i++)
 	{
-		fprintf(fo, "Reading register %s\n", SREGS[i].n);
-		SREGS[i].v = e_read_reg(pEpiphany, corenum, sregsaddr + SREGS[i].a);
+		fprintf(fo, "%s\n", SREGS[i].n);
+		e_read(pEpiphany, row, col, sregsaddr + SREGS[i].a, &(SREGS[i].v), sizeof(SREGS[i].v));
 	}
 
 	sz = sizeof(coredata);
 	sz = 4 * 34;
 	fprintf(fo, "Reading core 0x%03x data structure [%uB] from address %08x...\n", coreid, sz, baseaddr);
-	e_read_buf(pEpiphany, corenum, baseaddr, (void *) &coredata, sz);
+	e_read(pEpiphany, row, col, baseaddr, (void *) &coredata, sz);
 
 	sz = sizeof(mailbox);
 //	sz = 4 * (2 * _Ncores + 2);
 	fprintf(fo, "Reading Mailbox [%uB] from address %08x...\n", sz, (unsigned int) mbox_addr);
-	e_mread_buf(pDRAM, mbox_addr, (void *) mailbox, sz);
-
+	e_read(pDRAM, 0, 0, mbox_addr, (void *) mailbox, sz);
 
 	// Write output
 	// ============

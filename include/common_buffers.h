@@ -21,7 +21,8 @@ extern volatile void* _SHARED_DRAM_;
 #define SHARED_DRAM   (_SHARED_DRAM_)
 #else
 extern const unsigned _SHARED_DRAM_;
-#define SHARED_DRAM   ((unsigned)(&_SHARED_DRAM_))
+#define SHARED_DRAM   ((void *)(&_SHARED_DRAM_))
+
 #endif
 
 

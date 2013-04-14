@@ -2,16 +2,14 @@ env = Environment()
 core = Environment()
 
 inc = '../../include'
-env.Append(CPPPATH= [inc,'../../../../tools/host/armv7l/include'])
+env.Append(CPPPATH= [inc,'/opt/adapteva/esdk/tools/host.armv7l/include'])
 
 core.Append(CPPPATH=['.',inc,'../../../../tools/e-gnu/epiphany-elf/sys-include'])
-
-
 
 #gcc = '/project/builds/rbnlinux/build_env/x86_64_devboard-3.0.0.10/export/sysroot/common_pc_64-glibc_std/x86-linux2/i586-wrs-linux-gnu-x86_64-glibc_std-gcc'
 #env.Replace(CC = gcc)
 
-cflags = '   \
+cflags = '  -g \
            -std=c99             \
            -DPIC                                                   \
 '

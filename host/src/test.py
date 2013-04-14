@@ -1,7 +1,7 @@
 import socket, sys
 
 api = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-api_ep = ('192.168.0.11',27777)
+api_ep = ('192.168.0.15',27777)
 
 
 

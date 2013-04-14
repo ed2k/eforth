@@ -2,8 +2,8 @@ Config = Release
 GNU_PATH='/usr/bin/arm-linux-gnueabi-'
 
 
-INC_PATH=${EPIPHANY_HOME}/tools/host/armv7l/include
-LIB_PATH=${EPIPHANY_HOME}/tools/host/armv7l/lib
+INC_PATH=${EPIPHANY_HOME}/tools/host.armv7l/include
+LIB_PATH=${EPIPHANY_HOME}/tools/host.armv7l/lib
 
 
 HOST_ELF=../${Config}/matmul-16.elf
@@ -29,8 +29,8 @@ ${HOST_ELF}: matmul_host.c
                         -Wl,-R'/home/linaro/Adapteva/work/e-host' \
                         -o "${HOST_ELF}" \
                         "matmul_host.c" \
-                        -le-loader \
-                        -le-host
+			-lpthread \
+                        -le-hal
 
 ${HOST_PROBE}: e-probe.c e-probe-offsets.c
 	${GNU_PATH}gcc ${STATIC_LINK} \
@@ -46,5 +46,5 @@ ${HOST_PROBE}: e-probe.c e-probe-offsets.c
                         -Wl,-R'/home/linaro/Adapteva/work/e-host' \
                         -o "${HOST_PROBE}" \
                         "e-probe.c" \
-                        -le-host
+                        -le-hal
 
